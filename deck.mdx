@@ -1,0 +1,514 @@
+import { dark } from "mdx-deck/themes"
+import { CodeSurfer } from "mdx-deck-code-surfer"
+import shadesOfPurple from "prism-react-renderer/themes/shadesOfPurple"
+import nightOwl from "prism-react-renderer/themes/nightOwl"
+
+export { components } from "mdx-deck-code-surfer"
+
+export const theme = {
+    ...dark,
+    codeSurfer: {
+        ...shadesOfPurple,
+        showLineNumbers: true
+    }
+}
+
+
+# GraphQL with Entity Framework Core
+
+- Toni Petrina
+- Full stack developer
+- https://github.com/tpetrina
+
+---
+
+## Agenda
+
+- What is GraphQL?
+- GraphQL in action
+- Connecting with EF Core
+- Conclusion and other features
+
+---
+
+## What is GraphQL?
+
+- A new way of building APIs with strong emphasis on graph-like querying
+- Single endpoint (POST)
+- Requires data modeling
+- Puts power in client's hands
+
+---
+
+```clike GraphQL schema, request and response
+type Project {
+  name: String
+  tagline: String
+  contributors: [User]
+}
+
+{
+  project(name: "GraphQL") {
+    tagline
+  }
+}
+
+{
+  "project": {
+    "tagline": "A query language for APIs"
+  }
+}
+----
+* > 
+1:5 > Type definition
+7:11 > Request data shape
+12:16 > Response is similar to the request
+```
+
+---
+
+# DEMO Hello world
+
+---
+
+## Integrate in ASP.NET Core world
+
+- Use Entity Framework Core for fetching data
+- Build using middleware (can be built using endpoint as well)
+- Schema first (also possible using type first approach)
+
+---
+
+```clike Middleware
+public class Startup
+{
+  public void Configure(IApplicationBuilder app)
+  {
+    app.UseGraphQL();
+  }
+}
+
+public static class GraphQLMiddlewareExtensions
+{
+    public static IApplicationBuilder UseGraphQL(
+      this IApplicationBuilder app
+    )
+        => app.UseMiddleware<GraphQLMiddleware>();
+}
+```
+
+---
+
+```clike Middleware implementation
+if (context.Request.Path == "/api/graphql" && context.Request.Method == "POST")
+{
+    string body;
+    using (var streamReader = new StreamReader(context.Request.Body))
+    {
+        body = await streamReader.ReadToEndAsync();
+    }
+    var request = JsonConvert.DeserializeObject<GraphQLRequest>(body);
+
+    var result = await _executor.ExecuteAsync(doc =>
+    {
+        doc.Schema = schema;
+        doc.Query = request.Query;
+        doc.Inputs = request.Variables.ToInputs();
+    }).ConfigureAwait(false);
+
+    var json = await _writer.WriteToStringAsync(result);
+    await context.Response.WriteAsync(json);
+}
+----
+* > Handle in middleware (or controller)
+1 > Endpoint routing
+3:8 > Read query
+10:15 > Run it against defined schema
+17:18 > Return it as flat JSON
+```
+
+---
+
+```clike Root schema
+public class Demo1Schema : Schema
+{
+  public Demo1Schema(Demo1Query query)
+  {
+    Query = query;
+  }
+}
+```
+
+---
+
+```clike Fetching products
+public class Demo1Query : ObjectGraphType
+{
+  public Demo1Query(ApplicationDbContext db)
+  { 
+    Field<ListGraphType<DemoProductType>>(
+      "products",
+      resolve: context =>
+      {
+        return db.Product.ToList();
+      }
+    );
+
+  }
+}
+----
+* > Everything is a graph node
+5 > Field is of type List<DemoProductType>
+6 > Name in GraphQL query is "products"
+7:10 > Resolve data from DB using EF Core
+```
+---
+```clike Product definition from EF Entity
+public class DemoProductType : ObjectGraphType<DemoProduct>
+{
+  public DemoProductType()
+  {
+    Field(i => i.Id);
+    Field(i => i.Name);
+  }
+}
+
+[Table("Product")]
+public class DemoProduct
+{
+  [Key]
+  public int Id { get; set; }
+  public string Name { get; set; }
+}
+----
+10:16 > EF model
+1:8 > GraphQL model
+```
+
+---
+
+```clike Fetch one product using arguments
+public class Demo1Query : ObjectGraphType
+{
+  public Demo1Query(ApplicationDbContext db)
+  {
+    // ...
+    Field<DemoProductType>(
+      "product",
+      arguments: new QueryArguments(
+                  new QueryArgument<NonNullGraphType<IntGraphType>>
+                  {
+                      Name = "id"
+                  }),
+      resolve: context => {
+        var id = context.GetArgument<int>("id");
+        return db.Product.FirstOrDefault(x => x.Id == id);
+      }
+    );
+  }
+}
+----
+* > Add additional arguments
+7 > Field name in query
+8:9 > Define argument "id" as non nullable (required)
+13:16 > Fetch argument and use it
+```
+---
+
+# Mutations
+
+- We also need to create, update and delete data
+- We want to use same approach (endpoint)
+
+---
+
+```clike Mutations
+public class ProductMutation : ObjectGraphType
+{
+  public ProductMutation(ApplicationDbContext db)
+  {
+    Field<DemoProductType>(
+      "createProduct",
+      arguments: new QueryArguments(
+        new QueryArgument<NonNullGraphType<CreateProductType>> {Name = "product" }
+      ),
+      resolve: context =>
+      {
+        var product = context.GetArgument<DemoProduct>("product");     
+        db.Product.Add(product);
+        db.SaveChanges();
+        return product;
+      }
+    );
+  }
+}
+----
+5 > Again, a field - but this time under a mutation!
+6 > Name of this node i.e. operation
+7:9 > Arguments (simple and complex)
+10:16 > Actual implementation
+```
+
+---
+
+```clike Update root node
+public class Demo1Schema : Schema
+{
+    public Demo1Schema(
+      Demo1Query query,
+      ProductMutation productMutation)
+    {
+        Query = query;
+        Mutation = productMutation;
+    }
+}
+----
+5,8 > Register mutation part
+```
+
+---
+
+```clike Parameters can be complex objects
+public class CreateProductType : InputObjectGraphType
+{
+  public CreateProductType()
+  {
+    Name = "CreateProduct";
+    Field<NonNullGraphType<StringGraphType>>("name");
+  }
+}
+```
+---
+## Features recap
+- Ask what you need
+- One request for multiple resources
+- Same endpoint for CRUD
+- Typed responses
+- Evolving API and metrics
+- GraphiQL
+- https://graphql.org
+---
+
+```jsx GraphiQL
+import React from 'react';
+import GraphiQL from 'graphiql';
+
+import 'graphiql/graphiql.css';
+import './app.css';
+
+function graphQLFetcher(graphQLParams) {
+  return fetch(window.location.origin + '/api/graphql', {
+    method: 'post',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(graphQLParams),
+  }).then(response => response.json());
+}
+
+export function GraphQLBrowser() {
+  return (
+    <div style={{ height: '100%' }}>
+      <h1>Graph QL</h1>
+      <GraphiQL fetcher={graphQLFetcher} />
+    </div>
+  );
+}
+----
+* > Dead simple to add
+7:13 > Point to your GraphQL endpoint
+15:22 > Simple component
+```
+
+---
+
+# DEMO - Northwind
+
+---
+
+## Data loader pattern
+
+- When fetching related products we enter N+1 problem
+- The solution is to batch queries for related items
+- But only if they are of the same type
+
+---
+
+```clike Naive approach
+Field<ListGraphType<ProductsType>, List<Products>>()
+    .Name("Products")
+    .ResolveAsync(ctx =>
+    {
+        var id = ctx.Source.SupplierId;
+        return (from product in db.Products
+                where product.SupplierId == id
+                select product).ToListAsync();
+    });
+----
+1 > From EF to GraphQL model
+2 > Public name
+3:9 > Naive fetch for the specified id
+```
+
+---
+
+```clike Using data loader
+Field<ListGraphType<ProductsType>, List<Products>>()
+    .Name("Products")
+    .ResolveAsync(ctx =>
+    {
+        var customersLoader = accessor.Context
+          .GetOrAddBatchLoader<int, List<Products>>(
+            loaderKey: "GetProductsBySupplierId",
+            fetchFunc: productsService.GetProductsBySupplierId);
+        return customersLoader.LoadAsync(ctx.Source.SupplierId);
+    });
+----
+5:9 > Remember what we ask and resolve later
+```
+
+---
+
+```clike How do we batch?
+async Task<IDictionary<int, List<Products>>>
+  GetProductsBySupplierId(
+    IEnumerable<int> supplierIds,
+    CancellationToken CancellationToken)
+{
+    var ids = supplierIds.ToList();
+    var products = await (from product in db.Products
+                            where product.SupplierId.HasValue
+                               && ids.Contains(product.SupplierId.Value)
+                            select product)
+                            .ToListAsync();
+
+    return products
+        .GroupBy(p => p.SupplierId ?? 0)
+        .ToDictionary(g => g.Key, g => g.ToList());
+}
+----
+* > Batch operation
+3 > Given a list of ids
+7:11 > Fetch those using `IN` operator
+13:15 > Group by input ID
+```
+
+---
+
+## Recap
+
+- Mappings, simple and complex
+- Deprecating fields
+- Complexity
+- One to many, many to many
+- DataLoader pattern for optimizing N+1 queries
+
+---
+
+## When to use GraphQL
+
+- Unknown consumer patterns (public API)
+- Underfetching (N+1), overfetching
+- Quickly evolving backend/frontend
+- Microservices (stitching, Apollo Federation)
+
+---
+
+## Limitations
+
+- Standardized endpoint (only 1)
+- Error model?
+- POST vs PUT vs PATCH
+- Naming discussions
+- Proliferation of special types
+- Waiting for endpoint to be extended…
+
+---
+
+## DEMO - frontend
+
+---
+
+```jsx Simple AJAX
+axios
+  .post('/api/graphql', {
+    query: `
+      {
+        products {
+          productName
+        }
+      }
+    `,
+  })
+  .then(result => setData(result.data.data));
+```
+
+---
+
+```jsx Apollo client
+import ApolloClient, { gql } from 'apollo-boost';
+const client = new ApolloClient({
+  uri: 'https://localhost:5001/api/graphql',
+});
+
+
+
+client
+  .query({ query: gql`
+  {
+    products {
+      productName
+    }
+  }`})
+  .then(result => setData(result.data));
+```
+
+---
+
+## Paging issues...
+
+Fetching everything is nice, but we need to limit ourselves.
+
+---
+
+# Demo – Relay connections
+
+---
+
+## Future
+
+- Authorization on field level
+- Learn type system under the hood
+- Union types
+- Enums
+- Split schema in multiple files
+- Generate simple GraphQL for CRUD
+- Subscriptions
+- Variables, fragments, more…
+
+---
+
+## ...pitfalls?
+
+- Authorization – can you access this?
+- Errors – How to handle special cases?
+- Overfetching on server side
+- DDOS waiting to happen?
+- Efficient translation?
+- Max depth?
+
+---
+
+## Links
+
+- Hasura https://blog.hasura.io/architecture-of-a-high-performance-graphql-to-sql-server-58d9944b8a87/
+- https://graphql-dotnet.github.io
+- https://graphql.org
+- https://www.apollographql.com/docs/react/
+- https://github.com/Dotnet-Boxed/Templates/blob/master/Docs/GraphQL.md
+
+---
+
+# Questions?
+
+---
+
+# Thank you!
