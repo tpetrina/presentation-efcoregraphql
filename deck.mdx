@@ -1,15 +1,18 @@
-import { dark } from "mdx-deck/themes"
+import { future, hack, dark, swiss } from "mdx-deck/themes"
 import { CodeSurfer } from "mdx-deck-code-surfer"
 import shadesOfPurple from "prism-react-renderer/themes/shadesOfPurple"
 import nightOwl from "prism-react-renderer/themes/nightOwl"
+import duotoneLight from "prism-react-renderer/themes/duotoneLight"
 
 export { components } from "mdx-deck-code-surfer"
 
 export const theme = {
-    ...dark,
+    //...dark,
+    ...swiss,
     codeSurfer: {
         ...shadesOfPurple,
-        showLineNumbers: true
+        //...duotoneLight,
+        showNumbers: false
     }
 }
 
@@ -17,7 +20,8 @@ export const theme = {
 # GraphQL with Entity Framework Core
 
 - Toni Petrina
-- Full stack developer
+- Full stack developer at Visma e-conomic a/s
+- Microsoft MVP
 - https://github.com/tpetrina
 
 ---
@@ -230,7 +234,10 @@ public class ProductMutation : ObjectGraphType
     Field<DemoProductType>(
       "createProduct",
       arguments: new QueryArguments(
-        new QueryArgument<NonNullGraphType<CreateProductType>> {Name = "product" }
+        new QueryArgument<NonNullGraphType<CreateProductType>>
+        {
+          Name = "product" 
+        }
       ),
       resolve: context =>
       {
@@ -245,8 +252,8 @@ public class ProductMutation : ObjectGraphType
 ----
 5 > Again, a field - but this time under a mutation!
 6 > Name of this node i.e. operation
-7:9 > Arguments (simple and complex)
-10:16 > Actual implementation
+7:12 > Arguments (simple and complex)
+13:19 > Actual implementation
 ```
 
 ---
